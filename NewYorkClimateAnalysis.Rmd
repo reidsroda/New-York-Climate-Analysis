@@ -1,0 +1,286 @@
+---
+title: "New York Climate Analysis"
+author: "Harris Zhang, Georgia Morrow, Reid Sroda, Chengxu Bian"
+date: "4/21/2022"
+output: html_document
+---
+
+# Introduction
+
+- To explore the impact climate change has had, we chose to analyze temperature and precipitation patterns in New York to see if there were any statistically significant changes. We used our data to answer the question: "To what extent has New York’s temperature and precipitation changed due to climate change between the years 1869 - 2020?" We believe that both the average temperature and average rainfall is increasing while snowfall is seemingly decreasing over time. We will make use of R and the various statistical methods we've learned in this course to conduct tests to provide evidence for our thesis.
+
+# Background
+
+- Global temperatures have been rising for decades and have caused severe environmental issues. To better understand climate change, we will analyze the weather report from New York City. The dataset was collected by National Weather Service (NWS) from the New York Central Park weather stations [Source](https://www.weather.gov/okx/CentralParkHistorical).
+
+- `| Variable   | Meaning                                                |   |   |   |`
+- `|------------|--------------------------------------------------------|---|---|---|`
+- `| year       | The year data was collected                            |   |   |   |`
+- `| JAN to DEC | Average Monthly temperature/precipitation in each year |   |   |   |`
+- `| ANNUAL     | Average annual temperature/precipitation               |   |   |   |`
+
+- By analyzing the data of temperature and precipitation, we can better understand climate change over years. However, there are some unusual factors affecting our analysis. In some years, precipitations are abnormally high. For example, in 1983, the annual precipitation was 80.56 mm, while that in 1982 and 1981 was 41.4 mm and 38.11 mm. Such extreme value may break the trend and adversely affect our analysis. In the following analysis part, we create graphs for annual average temperature over years, annual average precipitation over years, temperatures in different seasons, and precipitation in different seasons.
+
+
+# Analysis
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
+library(tidyverse, lubridate)
+```
+
+```{r init, include=FALSE}
+ny_temp = read_csv("../Downloads/monthly_annual_temp.csv") %>% drop_na()
+ny_prcp = read_csv("../Downloads/monthly_annual_precip.csv") %>% drop_na()
+ny_snow = read_csv("../Downloads/monthly_seasonal_snowfall.csv") %>% drop_na() %>% 
+  mutate(YEAR = as.numeric(substr(SEASON, 1, 4)), ANNUAL = as.numeric(TOTAL)) %>% 
+  select(-SEASON)
+ny_fall1 = ny_prcp %>% 
+  select(YEAR, ANNUAL) %>%
+  rename(ANNUAL_RAIN = ANNUAL)
+ny_fall2 = ny_snow %>% 
+  select(YEAR, ANNUAL) %>% 
+  rename(ANNUAL_SNOW = ANNUAL)
+ny_fall = left_join(ny_fall1, ny_fall2)
+rm(ny_fall1, ny_fall2)
+```
+
+- For this project we want to analyze the linear correlation that would possibly represent the effect of time on temperature, precipitation, and snowfall in New York from 1869 to 2020. We first plot the graphs containing the information we need.
+
+```{r, echo=FALSE}
+ggplot(ny_temp, aes(x = YEAR, y = ANNUAL)) +
+  geom_line() +
+  geom_smooth(method = 'lm', se=FALSE) +
+  xlab("Year") +
+  ylab("Average Temperature (F)") +
+  ggtitle("Annual Average Temperature in New York", subtitle = "1869 - 2020")
+```
+```{r, echo=FALSE, fig.cap = "The blue lines connect the values of precipitation while the grey lines connect those of snowfall."}
+ggplot(ny_fall, aes(x = YEAR)) +
+  geom_line(aes(y = ANNUAL_RAIN), color = 'blue') +
+  geom_smooth(aes(y = ANNUAL_RAIN), method = 'lm', se=FALSE) +
+  geom_line(aes(y = ANNUAL_SNOW), color = 'grey') +
+  geom_smooth(aes(y = ANNUAL_SNOW), color = 'grey', method = 'lm', se=FALSE) +
+  xlab("Year") +
+  ylab("Average Precipitation/Snowfall (in)") +
+  ggtitle("Annual Average Precipitation/Snowfall in New York", subtitle = "1869 - 2020")
+```
+
+---
+
+- From the three smooth lines that are added using ggplot()'s linear regression methods, we can see how temperature has increased steadily, how snowfall is decreasing, and how precipitation is increasing. We are interested in the strength of correlation between the three mentioned variables and time *within each season* to see if climate change has been impacting New York.
+
+- Hence we conduct a linear regression analysis on the best fit linear model of the three lines that will be faceted into 4 different lines according to season.
+
+## Temperature Analysis
+
+```{r, echo=FALSE}
+temp = ny_temp %>% 
+  select(-ANNUAL) %>% 
+  pivot_longer(cols = c("JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                        "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"),
+               names_to = "month", values_to = "temp") %>% 
+  rename(year = YEAR) %>% 
+  mutate(season = case_when(month %in% c("DEC", "JAN", "FEB") ~ "Winter",
+                            month %in% c("MAR", "APR", "MAY") ~ "Spring",
+                            month %in% c("JUN", "JUL", "AUG") ~ "Summer",
+                            TRUE ~ "Autumn"))
+temp2 = temp %>% 
+  group_by(year, season) %>% 
+  summarize(mean_temp = mean(temp))
+```
+```{r, echo=FALSE}
+ggplot(temp2, aes(x = year, y = mean_temp)) +
+  geom_line() +
+  geom_smooth(method = 'lm', se = FALSE) +
+  facet_wrap(~season, scales = "free") +
+  xlab("Year") +
+  ylab("Mean temperature (F)") +
+  ggtitle("Mean Seasonal Temperature Change in New York", subtitle = "1869-2020")
+```
+
+- Unsurprisingly, the change in temperature across the four seasons are increasing, conforming to the change in annual average temperature.
+- We now further analyze the the strength and reliability of the linear regression models.
+
+### 1. Correlation Analysis
+
+- First, we find the correlation factors using the cor() method.
+
+```{r, echo=FALSE}
+year = 1869:2020
+autumn = temp2 %>% filter(season == "Autumn") %>% pull(mean_temp)
+spring = temp2 %>% filter(season == "Spring") %>% pull(mean_temp)
+summer = temp2 %>% filter(season == "Summer") %>% pull(mean_temp)
+winter = temp2 %>% filter(season == "Winter") %>% pull(mean_temp)
+annual = ny_temp %>% pull(ANNUAL)
+cor = tibble(autumn = cor(year, autumn), spring = cor(year, spring),
+       summer = cor(year, summer), winter = cor(year, winter),
+       annual = cor(year, annual)) %>% 
+  pivot_longer(cols = everything(), names_to = "time", values_to = "cor")
+cor
+```
+- From this chart we can deduce moderate correlation between time and the average seasonal change in temperature, while the annual average change shows a stronger correlation with time.
+
+### 2. Hypothesis Test
+
+- We now further analyze the linear models that are used to fit the data using the summary(lm) method.
+
+```{r, echo=FALSE}
+autumn_lm = lm(autumn ~ year)
+spring_lm = lm(spring ~ year)
+summer_lm = lm(summer ~ year)
+winter_lm = lm(winter ~ year)
+annual_lm = lm(annual ~ year)
+row_autumn = summary(autumn_lm)$coefficients[2, 1:4]
+row_spring = summary(spring_lm)$coefficients[2, 1:4]
+row_summer = summary(summer_lm)$coefficients[2, 1:4]
+row_winter = summary(winter_lm)$coefficients[2, 1:4]
+row_annual = summary(annual_lm)$coefficients[2, 1:4]
+lm_data = bind_rows(row_autumn, row_spring, row_summer, row_winter, row_annual) %>% 
+  mutate(Time = c('Autumn', 'Spring', 'Summer', 'Winter', 'Annual')) %>% 
+  relocate(Time, .before = everything()) %>% 
+  rename(`Slope Est.`= Estimate, `Test Stat` = `t value`, `P Value` = `Pr(>|t|)`) %>% 
+  mutate(`Pr(> t)` = 0.5 * `P Value`)
+lm_data
+```
+
+- From the summary chart, we can provide a linear relationship for the temperature of any seasonal or annual period using the following formula: $$T = \beta_0 + \beta_1 * t + \epsilon_0$$ 
+  - $t$ is the time period specified
+  - $T$ is the temperature at that time period
+  - $\beta_1$ is the slope of the regression line, meaning the rate of change of temperature
+    - which is represented by the "Slope Est." column in the above chart
+  - $\beta_0$ is some constant representing the y intercept.
+  - $\epsilon_0$ is the error of the estimate at a given point $(t, T)$ represented by the regression line.
+
+- We want to analyze whether or not it is significant that the slopes are greater than 0, meaning that a positive correlation does exist.
+- Thus we state the following hypotheses: $$H_0: \beta_1 = 0$$ $$H_a: \beta_1 > 0$$
+
+- From the given p-values, we can conclude that we have overwhelming evidence indicating that the slopes of any of the five fitted lines have a slope greater than zero, meaning there is a positive correlation between the time and temperature ($p < 1e{-10}$, one-sided t-test).
+
+## Precipitation/Snowfall Analysis
+
+```{r, echo=FALSE}
+prcp = ny_prcp %>% 
+  select(-ANNUAL) %>% 
+  pivot_longer(cols = c("JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                        "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"),
+               names_to = "month", values_to = "prcp") %>% 
+  rename(year = YEAR) %>% 
+  mutate(season = case_when(month %in% c("DEC", "JAN", "FEB") ~ "Winter",
+                            month %in% c("MAR", "APR", "MAY") ~ "Spring",
+                            month %in% c("JUN", "JUL", "AUG") ~ "Summer",
+                            TRUE ~ "Autumn"))
+snow = ny_snow %>% 
+  select(-ANNUAL) %>% 
+  pivot_longer(cols = c("JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+                        "JAN", "FEB", "MAR", "APR", "MAY", "JUN"),
+               names_to = "month", values_to = "snow") %>% 
+  rename(year = YEAR) %>% 
+  mutate(season = case_when(month %in% c("DEC", "JAN", "FEB") ~ "Winter",
+                            month %in% c("MAR", "APR", "MAY") ~ "Spring",
+                            month %in% c("JUN", "JUL", "AUG") ~ "Summer",
+                            TRUE ~ "Autumn"))
+prcp2 = prcp %>% 
+  group_by(year, season) %>% 
+  summarize(mean_prcp = mean(prcp))
+snow2 = snow %>% 
+  group_by(year, season) %>% 
+  summarize(mean_snow = mean(snow))
+
+drop = left_join(prcp2, snow2)
+```
+```{r, echo=FALSE}
+ggplot(drop) +
+  geom_line(aes(x = year, y = mean_prcp), color = 'blue') +
+  geom_smooth(aes(x = year, y = mean_prcp), method = 'lm', se = FALSE) +
+  geom_line(aes(x = year, y = mean_snow), color = 'grey') +
+  geom_smooth(aes(x = year, y = mean_snow), method = 'lm', se = FALSE, color = 'grey') +
+  facet_wrap(~season, scales = "free") +
+  xlab("Year") +
+  ylab("Mean Precipitation (in)") +
+  ggtitle("Mean Seasonal Precipitation/Snowfall Change in New York", subtitle = "1869-2020, blue for rain, grey for snow")
+```
+
+- From these graphs we find different changing patterns for precipitation and snowfall throughout the four seasons.
+- It seems like from a general perspective, rainfall is increasing while snowfall is decreasing (more obviously in spring and autumn).
+- Since summer and winter have visibly almost no significant change in rainfall and snowfall, we will omit these seasons from the following analysis.
+- We now further analyze the the strength and reliability of the linear regression models.
+
+### 1. Correlation Analysis
+
+- First, we find the correlation factors using the cor() method.
+
+```{r, echo=FALSE}
+year = 1869:2019
+autumn = drop %>% filter(season == "Autumn") %>% select(mean_prcp, mean_snow)
+spring = drop %>% filter(season == "Spring") %>% select(mean_prcp, mean_snow)
+annual_prcp = ny_prcp %>% pull(ANNUAL)
+annual_snow = ny_snow %>% pull(ANNUAL)
+cor = tibble(season = c("autumn", "spring", "annual"),
+             rain_cor = c(cor(year, autumn$mean_prcp), cor(year, spring$mean_prcp),
+                          cor(year, annual_prcp)),
+             snow_cor = c(cor(year, autumn$mean_snow), cor(year, spring$mean_snow),
+                          cor(year, annual_snow)))
+cor
+```
+- From this chart we can not deduce any strong correlation between time and the amount of precipitation/snowfall. Hence we need a hypothesis test to confirm that this correlation is significant enough for us to deduce any evidence indicating the increase of rainfall and decrease of snowfall overtime.
+
+### 2. Hypothesis Test
+
+- We now further analyze the linear models that are used to fit the data using the summary(lm) method.
+- Model for rainfall:
+```{r, echo=FALSE}
+autumn_lm = lm(autumn$mean_prcp ~ year)
+spring_lm = lm(spring$mean_prcp ~ year)
+annual_lm = lm(annual_prcp ~ year)
+row_autumn = summary(autumn_lm)$coefficients[2, 1:4]
+row_spring = summary(spring_lm)$coefficients[2, 1:4]
+row_annual = summary(annual_lm)$coefficients[2, 1:4]
+lm_data = bind_rows(row_autumn, row_spring, row_annual) %>% 
+  mutate(Time = c('Autumn', 'Spring', 'Annual')) %>% 
+  relocate(Time, .before = everything()) %>% 
+  rename(`Slope Est.`= Estimate, `Test Stat` = `t value`, `P Value` = `Pr(>|t|)`) %>% 
+  mutate(`Pr(> t)` = 0.5 * `P Value`)
+lm_data
+```
+- Model for snowfall:
+```{r, echo=FALSE}
+autumn_lm = lm(autumn$mean_snow ~ year)
+spring_lm = lm(spring$mean_snow ~ year)
+annual_lm = lm(annual_snow ~ year)
+row_autumn = summary(autumn_lm)$coefficients[2, 1:4]
+row_spring = summary(spring_lm)$coefficients[2, 1:4]
+row_annual = summary(annual_lm)$coefficients[2, 1:4]
+lm_data = bind_rows(row_autumn, row_spring, row_annual) %>% 
+  mutate(Time = c('Autumn', 'Spring', 'Annual')) %>% 
+  relocate(Time, .before = everything()) %>% 
+  rename(`Slope Est.`= Estimate, `Test Stat` = `t value`, `P Value` = `Pr(>|t|)`) %>% 
+  mutate(`Pr(< t)` = 0.5 * `P Value`)
+lm_data
+```
+
+- Similar to the temperature hypothesis analysis, we can provide a linear relationship for the precipitation/snowfall of any seasonal or annual period using the following formula: 
+$$P = \beta_{p0} + \beta_{p1} * t + \epsilon_p$$ 
+$$S = \beta_{s0} + \beta_{s1} * t + \epsilon_s$$ 
+  - $t$ is the time period specified
+  - $P$ is the amount of precipitation at that time period
+  - $S$ is the amount of snowfall at that time period
+  - $\beta_{p1}$ is the slope of the regression line for rainfall, meaning the rate of change of precipitation
+  - $\beta_{s1}$ is the slope of the regression line for snowfall, meaning the rate of change of snowfall
+    - which are represented by the "Slope Est." column in the above chart
+  - $\beta_{p0}$ and $\beta_{s0}$ are some constants representing the y intercepts of the two lines.
+  - $\epsilon_p$ and $\epsilon_s$ are the errors of the estimates at given points $(t, P)$ and $(t, S)$, respectively.
+
+- In order to test for whether there are correlations between time and precipitation/snowfall, we propose the following hypotheses:
+$$H_0: \beta_{p1} = 0\ \ \ \ \beta_{s1} = 0$$
+$$H_a: \beta_{p1} > 0\ \ \ \ \beta_{s1} < 0$$
+- From the given chart of p-values, we conclude the following:
+  - There is significant amount of evidence indicating that autumn rainfall is increasing annually ($p = 0.02$) and even more significant evidence that spring and annual rainfall is increasing annually ($p \approx 1e{-4}$, one-sided t-test)
+  - There is not enough evidence to conclude that snowfall is decreasing annually ($p = 0.07$, one-sided t-test)
+  
+# Discussion
+
+- To interpret these results more broadly one should open the scope of these results, looking into its applicability over the entire United States. Given the results of our findings, there is significant evidence to support that the average climate in New York has been rising since the 1870’s. It could be applied to the climate in the entire Northeastern United States and potentially across the entire country. 
+- Though this data is very applicable and practical, there are some minor shortcomings to this analysis. The main caveat being the missing data, though we assume the trends of climate change occurred continuously throughout the front to back end of of our data, there are some missing measurements of temperature; However, these data points were at the ends of our data (1869, 2020) so the overall trend is not changed drastically by these shortcomings. 
+- In response to these findings, some more applicable questions arise: What is causing this slight increase in temperature? Are there signs of slowing down? When will this slight but significant increase in temperature become unlivable for humans? These are all valid response questions to consider when continuing to analyze this data in future years. New data we may look to analyze could be the first snowfall of every year, looking at how the trend of first snowfall has changed over the course of our data.
+- In all, our data was very clear to show there is enough evidence to reject the null hypothesis that the average temperature of New York City has not changed over the last 150 years or so. This conclusion can be seen through our extremely low p-value for difference in means, graphs showing the average temperature by season, and graphs showing average precipitation by season. 
